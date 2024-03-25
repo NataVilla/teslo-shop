@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, InternalServerErrorException, Logger, 
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PaginationDto } from 'src/common/dtos/pagination.dtos';
-import { Product } from './entities/product.entity';
+import { Product, ProductImage } from './entities/product.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { validate as isUUID} from 'uuid';
@@ -19,6 +19,9 @@ export class ProductsService {
     @InjectRepository(Product)
     private readonly productRepository:Repository<Product>,
 
+    @InjectRepository(ProductImage)
+    private readonly productImagesRepository:Repository<ProductImage>,
+
   ){}
 
 
@@ -26,11 +29,16 @@ export class ProductsService {
    async create(createProductDto: CreateProductDto) {
     
     try{
+      const { images = [], ...productDetails } = createProductDto
 
-      const product = this.productRepository.create(createProductDto);//crear repositorio
+
+      const product = this.productRepository.create({
+        ...createProductDto,
+        images: images.map( image => this.productImagesRepository.create({ url: image }))
+      });//crear repositorio
       await this.productRepository.save( product ); //grabar repositorio
 
-      return product;
+      return { ...product, images };
 
     }catch (error){
      this.handleDBExeptions(error);
@@ -39,14 +47,20 @@ export class ProductsService {
     
   }
 
-  findAll(paginationDto:PaginationDto) {
+   async findAll(paginationDto:PaginationDto) {
     const { limit =10, offset = 0 } = paginationDto;
 
-    return this.productRepository.find({
+    const products= await this.productRepository.find({
       take: limit, //toma todo lo que venga en limit
       skip: offset, //Saltate todo lo que venga en offset
-      //ToDO relaciones
-    });
+      relations: {
+        images: true, //nos permite ver en la busqueda las relaciones que hay en las tablas.
+      }  
+    })
+    return products.map( product => ({
+      ...product,
+      images: product.images.map( img => img.url )
+    }))
   }
 
   async findOne(term: string) {
@@ -56,12 +70,14 @@ export class ProductsService {
     if ( isUUID(term) ) {
       product = await this.productRepository.findOneBy({ id: term });
     }else{
-      const queryBuilder = this.productRepository.createQueryBuilder();
-      product = await queryBuilder
+    const queryBuilder = this.productRepository.createQueryBuilder('prod');
+    product = await queryBuilder
       .where('UPPER(title) =:title or slug =:slug', {
         title: term.toUpperCase(),
         slug: term.toLowerCase(),
-      }).getOne();
+      })
+      .leftJoinAndSelect('prod.images','prodImages')
+      .getOne();
       //product = await this.productRepository.findOneBy({ slug: term });
     }
 
@@ -72,10 +88,19 @@ export class ProductsService {
     return product
   }
 
+  async findOnePlain ( term: string ) {
+    const {images = [], ...rest } = await this.findOne( term );
+    return{
+      ...rest,
+      images: images.map( image => image.url)
+    }
+  }
+
   async update(id: string, updateProductDto: UpdateProductDto) {
     const product = await this.productRepository.preload({
       id: id,
       ...updateProductDto,
+      images: [],
     });
     
     if (!product)
