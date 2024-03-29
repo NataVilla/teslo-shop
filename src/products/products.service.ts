@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException, Query } from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PaginationDto } from 'src/common/dtos/pagination.dtos';
@@ -144,6 +144,7 @@ try {
     await this.productRepository.remove(product);
   }
 
+
   private handleDBExeptions(error:any){
     if (error.code === '23505')
         throw new BadRequestException(error.detail);
@@ -151,4 +152,19 @@ try {
       this.logger.error(error)
       throw new InternalServerErrorException('Unexpected eror, check server logs!')
   }
+
+  async deleteAllProducts(){
+    const query = this.productRepository.createQueryBuilder('product');
+
+    try{
+      return await query
+      .delete()
+      .where ({})
+      .execute();
+    }catch (error){
+      this.handleDBExeptions(error);
+    }
+
+  }
+
 }
